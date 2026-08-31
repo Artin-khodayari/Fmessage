@@ -37,7 +37,8 @@ def get_lock(path):
 
 
 USERS_DB = {
-    "ARTIN":   {"password": "1109",       "is_admin": True}
+    "ARTIN":   {"password": "1109",       "is_admin": True},
+    "KIAMEHR": {"password": "2011",       "is_admin": True}
 }
 
 ROOMS_DB = {
