@@ -614,8 +614,8 @@
             if(msgUserUpper !== clientUser && !currentRoomId.includes("_to_")) {
                 inner += `<strong>${msgUserUpper}</strong>`;
             }
-            if(msg.type === 'image' || msg.image_url) {
-                inner += `<img class="message-image" src="${msg.image_url}">`;
+            if(msg.type === 'image') {
+                inner += `<img class="message-image" data-image-id="${msg.id}" alt="">`;
             } else {
                 inner += `<span class="msg-text">${formatClickableTokens(msg.message)}</span>`;
             }
@@ -623,6 +623,11 @@
             inner += `<span class="timestamp">  ${timePart.substring(0, 5)}  </span></div>`;
             div.innerHTML = inner;
             container.appendChild(div);
+            if(msg.type === 'image') {
+                socket.emit('request_image', {
+                    msg_id: msg.id
+                });
+            }
         }
 
         function appendSys(t) {
@@ -682,6 +687,22 @@
             document.getElementById('file-selector').value = '';
             document.getElementById('image-upload-preview').style.display = 'none';
         }
+        socket.on('image_data', data => {
+            const img = document.querySelector(
+                `[data-image-id="${data.msg_id}"]`
+            );
+
+            if(!img || !data.data) return;
+
+            const blob = new Blob(
+                [data.data],
+                { type: data.mime || 'application/octet-stream' }
+            );
+
+            const blobUrl = URL.createObjectURL(blob);
+
+            img.src = blobUrl;
+        });
     </script>
 </body>
 </html>

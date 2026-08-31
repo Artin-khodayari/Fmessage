@@ -219,9 +219,7 @@ def index():
     return render_template('index.html')
 
 
-@app.route('/uploads/<path:filename>')
-def uploaded_file(filename):
-    return send_from_directory(app.config['UPLOAD_FOLDER'], secure_filename(filename))
+
 
 
 @socketio.on('upload_image')
@@ -298,8 +296,8 @@ def handle_upload_image(data):
         'id': str(uuid.uuid4()),
         'time': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
         'message': '',
-        'image_url': f'/uploads/{new_filename}',
         'image_name': safe_name,
+        'image_file': new_filename,
         'username': username,
         'type': 'image',
         'room': room_id,
@@ -326,6 +324,96 @@ def handle_upload_image(data):
         'message': msg_data
     }
 
+@socketio.on('request_image')
+def handle_request_image(data):
+    sid = request.sid
+    profile = safe_get_profile(sid)
+
+    username = profile.get('username')
+    msg_id = str((data or {}).get('msg_id', '')).strip()
+
+    if not username or not msg_id:
+        return
+
+    current_room = profile.get('room_id')
+    if not current_room:
+        return
+
+    # Find the requested message
+    if "_to_" in current_room:
+        messages = load_dm_messages(current_room)
+    else:
+        messages = [
+            m for m in load_messages()
+            if m.get('room') == current_room
+        ]
+
+    message = next(
+        (m for m in messages if m.get('id') == msg_id),
+        None
+    )
+
+    if not message or message.get('type') != 'image':
+        return
+
+    # Make sure the message belongs to the room the user is currently in
+    if message.get('room') != current_room:
+        return
+
+    # DM authorization
+    if "_to_" in current_room:
+        parties = current_room.split("_to_")
+        if username not in parties:
+            return
+
+    filename = secure_filename(
+        str(message.get('image_file', ''))
+    )
+
+    if not filename:
+        return
+
+    filepath = os.path.join(
+        app.config['UPLOAD_FOLDER'],
+        filename
+    )
+
+    # Prevent path traversal
+    if os.path.commonpath([
+        os.path.abspath(filepath),
+        os.path.abspath(app.config['UPLOAD_FOLDER'])
+    ]) != os.path.abspath(app.config['UPLOAD_FOLDER']):
+        return
+
+    if not os.path.isfile(filepath):
+        return
+
+    try:
+        with open(filepath, 'rb') as f:
+            file_data = f.read()
+
+        ext = filename.rsplit('.', 1)[-1].lower()
+
+        mime_types = {
+            'png': 'image/png',
+            'jpg': 'image/jpeg',
+            'jpeg': 'image/jpeg',
+            'gif': 'image/gif',
+            'webp': 'image/webp',
+        }
+
+        socketio.emit(
+            'image_data',
+            {
+                'msg_id': msg_id,
+                'data': file_data,
+                'mime': mime_types.get(ext, 'application/octet-stream')
+            },
+            room=sid
+        )
+
+    except IOError as e:
+        print(f"[request_image] {e}")
 @socketio.on('connect')
 def handle_connect():
     active_connections[request.sid] = {
