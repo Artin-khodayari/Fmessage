@@ -21,7 +21,12 @@ UPLOAD_FOLDER = os.path.join(BASE_DIR, 'uploads')
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
+socketio = SocketIO(
+    app,
+    cors_allowed_origins="*",
+    async_mode='threading',
+    max_http_buffer_size=16 * 1024 * 1024
+)
 
 db_locks = defaultdict(threading.Lock)
 
@@ -32,7 +37,7 @@ def get_lock(path):
 
 
 USERS_DB = {
-    "username":   {"password": "password",       "is_admin": True}
+    "ARTIN":   {"password": "1109",       "is_admin": True}
 }
 
 ROOMS_DB = {
@@ -218,55 +223,82 @@ def uploaded_file(filename):
     return send_from_directory(app.config['UPLOAD_FOLDER'], secure_filename(filename))
 
 
-@app.route('/upload-image', methods=['POST'])
-def upload_image():
-    if 'image' not in request.files:
-        return jsonify({'error': 'No image file'}), 400
+@socketio.on('upload_image')
+def handle_upload_image(data):
+    sid = request.sid
+    profile = safe_get_profile(sid)
 
-    file = request.files['image']
-    username = request.form.get('username', '').strip().upper()
-    auth_token = request.form.get('auth_token', '').strip()
-    room_id = request.form.get('room_id', '').strip()
+    username = profile.get('username')
+    room_id = str((data or {}).get('room_id', '')).strip()
+    filename = str((data or {}).get('filename', '')).strip()
+    file_data = (data or {}).get('file')
 
-    if not username or not room_id or not auth_token:
-        return jsonify({'error': 'Missing verification context'}), 400
+    if not username or not room_id:
+        return {'success': False, 'error': 'Missing upload context'}
 
-    target_sid = auth_tokens.get(auth_token)
-    if not target_sid or target_sid not in active_connections:
-        return jsonify({'error': 'Invalid or expired token'}), 403
-    if safe_get_profile(target_sid).get('username') != username:
-        return jsonify({'error': 'Username/token mismatch'}), 403
+    if not file_data:
+        return {'success': False, 'error': 'No image file'}
 
-    ip = get_ip_address()
-    if not check_rate_limit(f"upload:{ip}",
-                            limit=RATE_LIMIT_UPLOADS,
-                            window=RATE_LIMIT_UPLOAD_WINDOW):
-        return jsonify({'error': 'Too many uploads, slow down.'}), 429
+    if not filename:
+        return {'success': False, 'error': 'Missing filename'}
 
+    # User must actually be inside the room
+    if profile.get('room_id') != room_id:
+        return {'success': False, 'error': 'You must be in the room to upload.'}
+
+    # DM authorization
     if "_to_" in room_id:
         allowed_users = room_id.split("_to_")
         if username not in allowed_users:
-            return jsonify({'error': 'Unauthorized for this DM'}), 403
+            return {'success': False, 'error': 'Unauthorized for this DM'}
 
-    if safe_get_profile(target_sid).get('room_id') != room_id:
-        return jsonify({'error': 'You must be in the room to upload.'}), 403
+    # Upload rate limit
+    ip = profile.get('ip', 'unknown')
+    if not check_rate_limit(
+        f"upload:{ip}",
+        limit=RATE_LIMIT_UPLOADS,
+        window=RATE_LIMIT_UPLOAD_WINDOW
+    ):
+        return {'success': False, 'error': 'Too many uploads, slow down.'}
 
-    if not (file and allowed_file(file.filename)):
-        return jsonify({'error': 'Invalid file type'}), 400
+    # Sanitize filename
+    safe_name = secure_filename(filename)
 
-    ext = file.filename.rsplit('.', 1).lower()
+    if not safe_name or '.' not in safe_name:
+        return {'success': False, 'error': 'Invalid file type'}
+
+    ext = safe_name.rsplit('.', 1)[1].lower()
+
     if ext not in ALLOWED_EXTENSIONS:
-        return jsonify({'error': 'Invalid extension'}), 400
-    filename = f"{uuid.uuid4().hex}.{ext}"
-    filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-    file.save(filepath)
+        return {'success': False, 'error': 'Invalid file type'}
+
+    # UUID filename so uploaded names cannot collide
+    new_filename = f"{uuid.uuid4().hex}.{ext}"
+    filepath = os.path.join(
+        app.config['UPLOAD_FOLDER'],
+        new_filename
+    )
+
+    try:
+        with open(filepath, 'wb') as f:
+            if isinstance(file_data, bytearray):
+                file_data = bytes(file_data)
+
+            if not isinstance(file_data, bytes):
+                return {'success': False, 'error': 'Invalid binary file data'}
+
+            f.write(file_data)
+
+    except IOError as e:
+        print(f"[upload_image] {e}")
+        return {'success': False, 'error': 'Failed to save image'}
 
     msg_data = {
         'id': str(uuid.uuid4()),
         'time': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
         'message': '',
-        'image_url': f'/uploads/{filename}',
-        'image_name': secure_filename(file.filename),
+        'image_url': f'/uploads/{new_filename}',
+        'image_name': safe_name,
         'username': username,
         'type': 'image',
         'room': room_id,
@@ -282,9 +314,16 @@ def upload_image():
         history.append(msg_data)
         save_messages(history[-1000:])
 
-    socketio.emit('new_message', msg_data, room=room_id)
-    return jsonify({'success': True})
+    socketio.emit(
+        'new_message',
+        msg_data,
+        room=room_id
+    )
 
+    return {
+        'success': True,
+        'message': msg_data
+    }
 
 @socketio.on('connect')
 def handle_connect():

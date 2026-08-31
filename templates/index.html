@@ -544,20 +544,28 @@
         });
 
         async function uploadImage(file, roomId) {
-            const form = new FormData();
-            form.append('image',     file);
-            form.append('username',  SESSION.username);
-            form.append('room_id',   roomId);
-            form.append('auth_token', SESSION.authToken);
+            return new Promise((resolve, reject) => {
+                socket.emit(
+                    'upload_image',
+                    {
+                        room_id: roomId,
+                        filename: file.name,
+                        file: file
+                    },
+                    response => {
+                        if (!response || !response.success) {
+                            reject(
+                                new Error(
+                                    response?.error || 'Upload failed'
+                                )
+                            );
+                            return;
+                        }
 
-            const res  = await fetch('/upload-image', { method: 'POST', body: form });
-            let body = {};
-            try { body = await res.json(); } catch (_) {}
-
-            if (!res.ok || !body.success) {
-                throw new Error(body.error || `HTTP ${res.status}`);
-            }
-            return body;
+                        resolve(response);
+                    }
+                );
+            });
         }
 
         async function sendMessage() {
