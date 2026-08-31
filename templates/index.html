@@ -1,0 +1,679 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FMessage</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        :root {
+            --bg-dark: #182533; --sidebar-bg: #17212b; --chat-bg: #0e1621;
+            --bubble-my: #2b5278; --bubble-other: #182533; --text-main: #f5f5f5;
+            --text-meta: #7f91a4; --accent: #5288c1; --border-color: #101921; --input-bg: #24303f;
+        }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg-dark); color: var(--text-main); height: 100vh; overflow: hidden; }
+        
+        #auth-view { display: flex; justify-content: center; align-items: center; height: 100vh; width: 100%; }
+        .auth-card { background: var(--sidebar-bg); padding: 40px; border-radius: 12px; border: 1px solid var(--border-color); width: 100%; max-width: 360px; text-align: center; }
+        .auth-card h2 { margin-bottom: 24px; color: var(--accent); font-weight: 500; }
+        .auth-card input { width: 100%; padding: 12px; margin-bottom: 16px; background: var(--chat-bg); border: 1px solid var(--border-color); border-radius: 8px; color: white; outline: none; }
+        .auth-card button { width: 100%; padding: 12px; background: var(--accent); color: white; border: none; border-radius: 8px; font-weight: 500; cursor: pointer; }
+        
+        #chat-workspace-view { display: none; height: 100vh; width: 100%; }
+        #sidebar { width: 360px; background: var(--sidebar-bg); border-right: 1px solid var(--border-color); display: flex; flex-direction: column; position: relative; }
+        #user-profile { padding: 16px; background: var(--sidebar-bg); border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; }
+        .name { font-weight: 600; color: var(--text-main); }
+        
+        .sidebar-section-title { font-size: 12px; text-transform: uppercase; color: var(--accent); font-weight: bold; padding: 12px 16px 4px 16px; letter-spacing: 0.5px; }
+
+        #rooms-list-container, #users-list-container { overflow-y: auto; }
+        #rooms-list-container { max-height: 40%; border-bottom: 1px solid var(--border-color); }
+        #users-list-container { flex: 1; }
+
+        .item-row { padding: 10px 16px; display: flex; justify-content: space-between; align-items: center; cursor: pointer; transition: background 0.2s; }
+        .item-row:hover { background: #202b36; }
+        .item-row.active { background: #2b5278; }
+        .details-box { display: flex; align-items: center; gap: 10px; }
+        .row-avatar { width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; color: white; font-size: 14px; }
+        .info-col { display: flex; flex-direction: column; }
+        .info-title { font-weight: 500; font-size: 14px; }
+        .info-meta { font-size: 12px; color: var(--text-meta); }
+        .item-row.active .info-meta { color: #d1e2f1; }
+
+        #action-fab {
+            position: absolute; bottom: 20px; right: 20px; width: 52px; height: 52px;
+            background-color: var(--accent); border-radius: 50%; display: flex; align-items: center;
+            justify-content: center; font-size: 24px; color: white; cursor: pointer;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.4); border: none; z-index: 10; transition: transform 0.2s;
+        }
+        #action-fab:hover { transform: scale(1.05); }
+
+        .app-modal-overlay {
+            display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.6); z-index: 3000; align-items: center; justify-content: center;
+        }
+        .app-modal-card {
+            background: var(--sidebar-bg); border: 1px solid var(--border-color);
+            border-radius: 12px; width: 100%; max-width: 360px; padding: 24px; display: flex; flex-direction: column; gap: 16px;
+        }
+        .app-modal-header { display: flex; justify-content: space-between; align-items: center; }
+        .app-modal-header h3 { font-weight: 500; color: var(--accent); }
+        .app-modal-close { background: none; border: none; color: var(--text-meta); cursor: pointer; font-size: 16px; }
+        
+        .menu-row-btn {
+            background: var(--input-bg); color: white; border: 1px solid var(--border-color);
+            padding: 14px; border-radius: 8px; text-align: center; cursor: pointer; font-weight: 500; transition: background 0.2s;
+        }
+        .menu-row-btn:hover { background: var(--accent); }
+        
+        .modal-form-group { display: flex; flex-direction: column; gap: 6px; }
+        .modal-form-group label { font-size: 12px; color: var(--text-meta); }
+        .modal-form-group input { width: 100%; padding: 10px; background: var(--chat-bg); border: 1px solid var(--border-color); border-radius: 6px; color: white; outline: none; }
+        .submit-modal-btn { width: 100%; padding: 12px; background: var(--accent); color: white; border: none; border-radius: 6px; font-weight: 500; cursor: pointer; }
+
+        .chat-link { color: #64b5f6; text-decoration: underline; cursor: pointer; font-weight: 500; }
+        .chat-link:hover { color: #90caf9; }
+
+        #main-chat { flex: 1; display: flex; flex-direction: column; background: var(--chat-bg); position: relative; }
+        #chat-header { background: var(--sidebar-bg); padding: 14px 24px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); }
+        #header-meta-area { display: flex; flex-direction: column; gap: 2px; }
+        #chat-header h3 { font-size: 16px; font-weight: 500; }
+        #active-room-stats { font-size: 13px; color: var(--accent); }
+        .action-header-btn { background: var(--input-bg); border: none; color: white; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 500; }
+        .action-header-btn:hover { background: var(--accent); }
+
+        #messages-container { 
+            flex: 1; padding: 24px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px;
+            background-image: url('https://user-images.githubusercontent.com/1500684/158226065-2747bbd9-de4e-4f74-8846-9d29ef115b02.png'); background-attachment: fixed;
+        }
+        
+        .msg { max-width: 60%; padding: 8px 12px; border-radius: 10px; position: relative; font-size: 15px; word-wrap: break-word; display: flex; flex-direction: column; box-shadow: 0 1px 2px rgba(0,0,0,0.2); }
+        .msg.my { align-self: flex-end; background: var(--bubble-my); border-bottom-right-radius: 2px; }
+        .msg.other { align-self: flex-start; background: var(--bubble-other); border-bottom-left-radius: 2px; }
+        .msg.sys { align-self: center; background: rgba(23, 33, 43, 0.8); color: #fff; font-size: 13px; border-radius: 12px; padding: 4px 14px; box-shadow: none; }
+        .msg strong { display: block; font-size: 13px; margin-bottom: 3px; color: #76a9e0; font-weight: 500; }
+        .msg.my strong { color: #a2c6eb; }
+        .timestamp { font-size: 11px; color: var(--text-meta); align-self: flex-end; margin-top: 4px; margin-left: 8px; }
+        .msg.my .timestamp { color: #a2c6eb; }
+        .message-image { max-width: 100%; max-height: 320px; border-radius: 6px; margin-top: 4px; display: block; object-fit: contain; }
+
+        #input-panel { padding: 16px 24px; background: var(--chat-bg); display: none; flex-direction: column; gap: 8px; max-width: 760px; width: 100%; margin: 0 auto; }
+        .input-container-box { background: var(--input-bg); border-radius: 22px; display: flex; align-items: center; padding: 4px 12px; gap: 8px; width: 100%; }
+        #text-message-input { flex: 1; padding: 10px 4px; border: none; background: transparent; color: white; outline: none; font-size: 15px; }
+        .icon-btn { background: none; border: none; font-size: 20px; cursor: pointer; color: var(--text-meta); padding: 4px; }
+        .send-btn { color: var(--accent); font-weight: 600; font-size: 15px; background: none; border: none; cursor: pointer; padding: 0 8px; }
+
+        #reply-indicator-bar { display: none; justify-content: space-between; background: var(--sidebar-bg); padding: 8px 16px; border-radius: 8px; font-size: 13px; border-left: 3px solid var(--accent); }
+        #image-upload-preview { display: none; padding: 6px; background: var(--input-bg); width: max-content; border-radius: 8px; margin-bottom: 4px; position: relative; }
+        #image-upload-preview img { max-width: 70px; max-height: 70px; display: block; border-radius: 6px; }
+        .close-preview-btn { position: absolute; top: -5px; right: -5px; background: #d9534f; color: white; border: none; border-radius: 50%; width: 18px; height: 18px; font-size: 11px; cursor: pointer; }
+
+        #context-menu-popup { display: none; position: fixed; z-index: 2000; background: var(--sidebar-bg); border: 1px solid var(--border-color); border-radius: 8px; width: 130px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
+        #context-menu-popup li { padding: 10px 16px; cursor: pointer; list-style: none; font-size: 14px; color: white; }
+        #context-menu-popup li:hover { background: var(--input-bg); }
+        #leave-room-btn { background: #d9534f; color: white; padding: 10px; border: none; border-radius: 8px; cursor: pointer; margin: 16px; font-weight: 500; text-align: center; }
+    </style>
+</head>
+<body>
+
+    <div id="auth-view">
+        <div class="auth-card">
+            <h2>FMessage login</h2>
+            <form id="login-form-element">
+                <input type="text" id="username-input" placeholder="Username" required autocomplete="off">
+                <input type="password" id="password-input" placeholder="Password" required>
+                <button type="submit">Next</button>
+            </form>
+            <div id="login-error-msg" style="color:#d9534f; display:none; margin-top:12px; font-size: 14px;"></div>
+        </div>
+    </div>
+
+    <div id="chat-workspace-view">
+        <aside id="sidebar">
+            <div id="user-profile">
+                <span class="name" id="display-profile-name">---</span>
+                <span class="admin-badge" id="display-admin-badge" style="display:none; background:#d9534f; padding:2px 6px; font-size:11px; border-radius:4px;">Admin</span>
+            </div>
+
+            <div class="sidebar-section-title">Rooms & DMs</div>
+            <div id="rooms-list-container"></div>
+
+            <div class="sidebar-section-title">People Directory</div>
+            <div id="users-list-container"></div>
+            
+            <button id="leave-room-btn" style="display:none;">Leave Group</button>
+            <button id="action-fab" onclick="toggleModal('creation-choice-modal', true)">+</button>
+        </aside>
+
+        <main id="main-chat">
+            <header id="chat-header">
+                <div id="header-meta-area">
+                    <h3 id="active-room-title">Select a chat to start messaging</h3>
+                    <span id="active-room-stats"></span>
+                </div>
+                <div style="display:flex; gap:8px; align-items:center;">
+                    <button id="invite-link-btn" class="action-header-btn" style="display:none;" onclick="copyGroupInviteLink()">Copy Invite Link</button>
+                    <button id="group-settings-btn" class="action-header-btn" style="display:none; background:#24303f;" onclick="openSettingsModal()">⚙ Settings</button>
+                </div>
+            </header>
+            <div id="messages-container"></div>
+            
+            <div id="input-panel">
+                <div id="reply-indicator-bar">
+                    <span id="reply-text"></span>
+                    <button onclick="cancelReplyState()" style="background:none; border:none; color:#d9534f; cursor:pointer;">✕</button>
+                </div>
+                <div id="image-upload-preview">
+                    <img id="img-preview" src="">
+                    <button class="close-preview-btn" onclick="clearFileSelection()">✕</button>
+                </div>
+                <div class="input-container-box">
+                    <input type="file" id="file-selector" accept="image/*" style="display:none;">
+                    <button class="icon-btn" onclick="document.getElementById('file-selector').click()">📎</button>
+                    <input type="text" id="text-message-input" placeholder="Message" autocomplete="off">
+                    <button class="send-btn" onclick="sendMessage()">SEND</button>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- MAIN CHAT ACTION CHOICE MODAL -->
+    <div id="creation-choice-modal" class="app-modal-overlay" onclick="closeOnOutside(event, 'creation-choice-modal')">
+        <div class="app-modal-card">
+            <div class="app-modal-header">
+                <h3>New Chat</h3>
+                <button class="app-modal-close" onclick="toggleModal('creation-choice-modal', false)">✕</button>
+            </div>
+            <div class="menu-row-btn" onclick="switchModalView('creation-choice-modal', 'group-make-modal')">Make a Group</div>
+            <div class="menu-row-btn" onclick="switchModalView('creation-choice-modal', 'link-enter-modal')">Enter the link of a new group</div>
+        </div>
+    </div>
+
+    <!-- GROUP MAKE FORM MODAL -->
+    <div id="group-make-modal" class="app-modal-overlay" onclick="closeOnOutside(event, 'group-make-modal')">
+        <div class="app-modal-card">
+            <div class="app-modal-header">
+                <h3>Create Group</h3>
+                <button class="app-modal-close" onclick="switchModalView('group-make-modal', 'creation-choice-modal')">✕</button>
+            </div>
+            <form id="modal-group-form">
+                <div class="modal-form-group">
+                    <label>Group Name</label>
+                    <input type="text" id="modal-room-title" placeholder="Enter name" required autocomplete="off">
+                </div>
+                <div class="modal-form-group" style="margin-top: 10px;">
+                    <label>Max Members</label>
+                    <input type="number" id="modal-room-capacity" placeholder="Capacity" min="2" max="50" value="10" required>
+                </div>
+                <div class="modal-form-group" style="margin-top: 10px; margin-bottom: 14px;">
+                    <label>Theme Color</label>
+                    <input type="color" id="modal-room-theme" value="#5288c1" style="height:36px; padding:0; background:transparent; border:none; cursor:pointer;">
+                </div>
+                <button type="submit" class="submit-modal-btn">Create Group</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- LINK JOIN FORM MODAL -->
+    <div id="link-enter-modal" class="app-modal-overlay" onclick="closeOnOutside(event, 'link-enter-modal')">
+        <div class="app-modal-card">
+            <div class="app-modal-header">
+                <h3>Join Group</h3>
+                <button class="app-modal-close" onclick="switchModalView('link-enter-modal', 'creation-choice-modal')">✕</button>
+            </div>
+            <div class="modal-form-group" style="margin-bottom: 14px;">
+                <label>Invite Token / Link Key</label>
+                <input type="text" id="modal-invite-input" placeholder="e.g. invite_xxxx or room_xxxx" autocomplete="off">
+            </div>
+            <button class="submit-modal-btn" onclick="submitJoinLinkFromModal()">Join Chat</button>
+        </div>
+    </div>
+
+    <!-- Group Settings Modal Overlay -->
+    <div id="settings-modal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.6); z-index:3000; align-items:center; justify-content:center;">
+        <div style="background:var(--sidebar-bg); border:1px solid var(--border-color); border-radius:12px; width:100%; max-width:400px; padding:24px; display:flex; flex-direction:column; gap:16px;">
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+                <h3 style="font-weight:500; color:var(--accent);">Group Settings</h3>
+                <button onclick="closeSettingsModal()" style="background:none; border:none; color:var(--text-meta); cursor:pointer; font-size:16px;">✕</button>
+            </div>
+            
+            <div>
+                <label style="font-size:12px; color:var(--text-meta); display:block; margin-bottom:4px;">Group Name</label>
+                <input type="text" id="settings-group-name" style="width:100%; padding:8px 12px; background:var(--chat-bg); border:1px solid var(--border-color); border-radius:6px; color:white; outline:none;">
+            </div>
+
+            <div>
+                <label style="font-size:12px; color:var(--text-meta); display:block; margin-bottom:4px;">Theme Color</label>
+                <input type="color" id="settings-group-color" style="width:100%; height:36px; background:transparent; border:none; cursor:pointer;">
+            </div>
+
+            <div>
+                <label style="font-size:12px; color:var(--text-meta); display:block; margin-bottom:4px;">Max Member Limit</label>
+                <input type="number" id="settings-group-capacity" min="2" max="100" style="width:100%; padding:8px 12px; background:var(--chat-bg); border:1px solid var(--border-color); border-radius:6px; color:white; outline:none;">
+            </div>
+
+            <div>
+                <label style="font-size:12px; color:var(--text-meta); display:block; margin-bottom:4px;">Invite Key Link</label>
+                <div style="display:flex; gap:8px;">
+                    <input type="text" id="settings-invite-string" readonly style="flex:1; padding:8px 12px; background:var(--chat-bg); border:1px solid var(--border-color); border-radius:6px; color:var(--text-meta); font-size:12px;">
+                    <button onclick="socket.emit('generate_new_invite_link', {room_id: currentRoomId})" class="action-header-btn">Revoke & Cycle</button>
+                </div>
+            </div>
+
+            <div>
+                <label style="font-size:12px; color:var(--text-meta); display:block; margin-bottom:4px;">Kick Online Room Participant</label>
+                <div style="display:flex; gap:8px;">
+                    <input type="text" id="settings-kick-username" placeholder="USERNAME" style="flex:1; padding:8px 12px; background:var(--chat-bg); border:1px solid var(--border-color); border-radius:6px; color:white; outline:none; font-size:13px;">
+                    <button onclick="kickUserFromPanel()" style="background:#d9534f; color:white; border:none; padding:8px 12px; border-radius:6px; cursor:pointer; font-size:13px;">Kick</button>
+                </div>
+            </div>
+
+            <button onclick="saveGroupSettingsChanges()" style="width:100%; padding:10px; background:var(--accent); color:white; border:none; border-radius:6px; font-weight:500; cursor:pointer; margin-top:8px;">Save Modifications</button>
+        </div>
+    </div>
+
+    <div id="context-menu-popup">
+        <li data-action="reply">Reply</li>
+        <li data-action="delete" style="color:#d9534f;">Delete</li>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <script>
+        const socket = io();
+        let currentRoomId = null;
+        let activeReplyId = null;
+        let selectedFileBlob = null;
+        let clientUser = "";
+        let clientIsAdmin = false;
+        let activeRoomOwner = null;
+        let activeInviteLinkString = "";
+
+        const SESSION = {
+            username:  null,
+            isAdmin:   false,
+            authToken: null
+        };
+
+        function toggleModal(id, open) {
+            document.getElementById(id).style.display = open ? 'flex' : 'none';
+        }
+        function switchModalView(closeId, openId) {
+            toggleModal(closeId, false);
+            toggleModal(openId, true);
+        }
+        function closeOnOutside(e, id) {
+            if(e.target.id === id) toggleModal(id, false);
+        }
+
+        document.getElementById('modal-group-form').addEventListener('submit', e => {
+            e.preventDefault();
+            socket.emit('create_new_room', {
+                room_name: document.getElementById('modal-room-title').value,
+                max_members: document.getElementById('modal-room-capacity').value,
+                avatar_color: document.getElementById('modal-room-theme').value
+            });
+            e.target.reset();
+            toggleModal('group-make-modal', false);
+        });
+
+        function submitJoinLinkFromModal() {
+            const token = document.getElementById('modal-invite-input').value.trim();
+            if(token.startsWith("room_") || token.startsWith("invite_") || token.includes("_to_")) {
+                socket.emit('invite_user_by_link', { room_id: token });
+                document.getElementById('modal-invite-input').value = "";
+                toggleModal('link-enter-modal', false);
+            } else {
+                alert("Please enter a valid format key link.");
+            }
+        }
+
+        function formatClickableTokens(text) {
+            return text.replace(/(invite_[a-zA-Z0-9]+|room_[a-zA-Z0-9]+|[a-zA-Z0-9]+_to_[a-zA-Z0-9]+)/g, function(token) {
+                return `<span class="chat-link" onclick="handleDirectLinkClick('${token}')">${token}</span>`;
+            });
+        }
+
+        function handleDirectLinkClick(token) {
+            socket.emit('invite_user_by_link', { room_id: token });
+        }
+
+        document.getElementById('login-form-element').addEventListener('submit', e => {
+            e.preventDefault();
+            socket.emit('login_attempt', {
+                username: document.getElementById('username-input').value,
+                password: document.getElementById('password-input').value
+            });
+        });
+
+        socket.on('login_error', data => {
+            const err = document.getElementById('login-error-msg');
+            err.style.display = 'block';
+            err.textContent = data.message;
+        });
+
+        socket.on('settings_error', data => {
+            alert(data.message);
+        });
+
+        socket.on('login_success', data => {
+            SESSION.username  = data.username.toUpperCase();
+            SESSION.isAdmin   = data.is_admin;
+            SESSION.authToken = data.auth_token;
+
+            document.getElementById('auth-view').style.display = 'none';
+            document.getElementById('chat-workspace-view').style.display = 'flex';
+            document.getElementById('display-profile-name').textContent = SESSION.username;
+            if (SESSION.isAdmin) {
+                document.getElementById('display-admin-badge').style.display = 'inline';
+            }
+            socket.emit('get_available_rooms');
+        });
+
+        socket.on('disconnect', () => {
+            SESSION.authToken = null;
+        });
+
+        socket.on('available_rooms', data => {
+            const container = document.getElementById('rooms-list-container');
+            container.innerHTML = '';
+            data.rooms.forEach(room => {
+                if(currentRoomId === room.id) {
+                    activeRoomOwner = room.owner ? room.owner.toUpperCase() : null;
+                    activeInviteLinkString = room.invite_link || room.id;
+                    
+                    if((activeRoomOwner === clientUser || clientIsAdmin) && !room.is_dm) {
+                        document.getElementById('group-settings-btn').style.display = 'block';
+                    }
+                }
+                
+                const firstLetter = room.name.replace("💬 ", "").charAt(0).toUpperCase();
+                const div = document.createElement('div');
+                div.className = `item-row ${currentRoomId === room.id ? 'active' : ''}`;
+                div.innerHTML = `
+                    <div class="details-box">
+                        <div class="row-avatar" style="background:${room.avatar_color}">${firstLetter}</div>
+                        <div class="info-col">
+                            <span class="info-title">${room.name}</span>
+                            <span class="info-meta">${room.is_dm ? 'Direct Message' : room.members_count + ' active'}</span>
+                        </div>
+                    </div>
+                `;
+                div.onclick = () => joinRoomChannel(room.id, room.name, room.is_dm);
+                container.appendChild(div);
+            });
+        });
+
+        socket.on('global_users_list', data => {
+            const container = document.getElementById('users-list-container');
+            container.innerHTML = '';
+            data.users.forEach(user => {
+                const upperUser = user.toUpperCase();
+                if(upperUser === clientUser) return;
+                const div = document.createElement('div');
+                div.className = 'item-row';
+                div.innerHTML = `
+                    <div class="details-box">
+                        <div class="row-avatar" style="background:#4b76a1">${upperUser.charAt(0)}</div>
+                        <div class="info-col">
+                            <span class="info-title">${upperUser}</span>
+                            <span class="info-meta" style="color:#00a884;">online</span>
+                        </div>
+                    </div>
+                    <button class="action-header-btn" style="padding:4px 8px;">Chat</button>
+                `;
+                div.onclick = () => socket.emit('start_direct_message', { target_user: upperUser });
+                container.appendChild(div);
+            });
+        });
+
+        socket.on('dm_room_ready', data => {
+            joinRoomChannel(data.room_id, data.name, true);
+        });
+
+        function copyGroupInviteLink() {
+            if(!activeInviteLinkString) return;
+            navigator.clipboard.writeText(activeInviteLinkString);
+            alert("Invite segment copied! Share this token key: " + activeInviteLinkString);
+        }
+
+        socket.on('invite_link_validated', data => {
+            joinRoomChannel(data.room_id, data.name, data.room_id.includes("_to_"));
+        });
+
+        function joinRoomChannel(id, name, isDm = false) {
+            if(currentRoomId) socket.emit('leave_chat_room', { room_id: currentRoomId });
+            currentRoomId = id;
+            document.getElementById('active-room-title').textContent = name;
+            document.getElementById('input-panel').style.display = 'flex';
+            document.getElementById('leave-room-btn').style.display = isDm ? 'none' : 'block';
+            document.getElementById('invite-link-btn').style.display = 'block'; 
+            document.getElementById('group-settings-btn').style.display = 'none';
+            document.getElementById('messages-container').innerHTML = '';
+            socket.emit('join_chat_room', { room_id: id });
+        }
+
+        document.getElementById('leave-room-btn').onclick = () => {
+            if(currentRoomId) {
+                socket.emit('leave_chat_room', { room_id: currentRoomId });
+                currentRoomId = null;
+                document.getElementById('active-room-title').textContent = "Select a chat to start messaging";
+                document.getElementById('active-room-stats').textContent = "";
+                document.getElementById('input-panel').style.display = 'none';
+                document.getElementById('leave-room-btn').style.display = 'none';
+                document.getElementById('invite-link-btn').style.display = 'none';
+                document.getElementById('group-settings-btn').style.display = 'none';
+                document.getElementById('messages-container').innerHTML = '';
+                socket.emit('get_available_rooms');
+            }
+        };
+
+        socket.on('chat_history', data => {
+            socket.emit('get_available_rooms'); 
+            data.messages.forEach(msg => appendBubble(msg));
+            scrollBottom();
+        });
+
+        socket.on('new_message', msg => {
+            appendBubble(msg);
+            scrollBottom();
+        });
+
+        socket.on('update_room_members', data => {
+            if(currentRoomId && currentRoomId.includes("_to_")) {
+                document.getElementById('active-room-stats').textContent = "Secure Private Direct Conversation";
+            } else {
+                document.getElementById('active-room-stats').textContent = `${data.count} members online`;
+            }
+        });
+
+        socket.on('user_joined_room', d => appendSys(`${d.username} joined the group`));
+        socket.on('user_left_room', d => appendSys(`${d.username} left the group`));
+
+        function openSettingsModal() {
+            document.getElementById('settings-group-name').value = document.getElementById('active-room-title').textContent;
+            document.getElementById('settings-invite-string').value = activeInviteLinkString;
+            document.getElementById('settings-modal').style.display = 'flex';
+        }
+
+        function closeSettingsModal() {
+            document.getElementById('settings-modal').style.display = 'none';
+        }
+
+        function saveGroupSettingsChanges() {
+            socket.emit('update_room_settings', {
+                room_id: currentRoomId,
+                name: document.getElementById('settings-group-name').value,
+                avatar_color: document.getElementById('settings-group-color').value,
+                max_members: document.getElementById('settings-group-capacity').value
+            });
+            closeSettingsModal();
+        }
+
+        function kickUserFromPanel() {
+            const target = document.getElementById('settings-kick-username').value.trim().toUpperCase();
+            if(target) {
+                socket.emit('kick_user_from_room', { room_id: currentRoomId, target_user: target });
+                document.getElementById('settings-kick-username').value = "";
+            }
+        }
+
+        socket.on('new_invite_link_generated', data => {
+            activeInviteLinkString = data.invite_link;
+            document.getElementById('settings-invite-string').value = data.invite_link;
+        });
+
+        socket.on('room_details_updated', data => {
+            if(currentRoomId === data.room_id) {
+                document.getElementById('active-room-title').textContent = data.name;
+            }
+        });
+
+        socket.on('you_were_kicked', data => {
+            if(currentRoomId === data.room_id) {
+                currentRoomId = null;
+                document.getElementById('active-room-title').textContent = "Select a chat to start messaging";
+                document.getElementById('active-room-stats').textContent = "";
+                document.getElementById('input-panel').style.display = 'none';
+                document.getElementById('leave-room-btn').style.display = 'none';
+                document.getElementById('invite-link-btn').style.display = 'none';
+                document.getElementById('group-settings-btn').style.display = 'none';
+                document.getElementById('messages-container').innerHTML = '';
+                alert("You have been kicked out of this group by an administrator.");
+                socket.emit('get_available_rooms');
+            }
+        });
+
+        async function uploadImage(file, roomId) {
+            const form = new FormData();
+            form.append('image',     file);
+            form.append('username',  SESSION.username);
+            form.append('room_id',   roomId);
+            form.append('auth_token', SESSION.authToken);
+
+            const res  = await fetch('/upload-image', { method: 'POST', body: form });
+            let body = {};
+            try { body = await res.json(); } catch (_) {}
+
+            if (!res.ok || !body.success) {
+                throw new Error(body.error || `HTTP ${res.status}`);
+            }
+            return body;
+        }
+
+        async function sendMessage() {
+            const input = document.getElementById('text-message-input');
+            const txt   = input.value.trim();
+
+            if (!currentRoomId) return;
+
+            if (selectedFileBlob) {
+                try {
+                    await uploadImage(selectedFileBlob, currentRoomId);
+                    clearFileSelection();
+                } catch (err) {
+                    alert('Upload failed: ' + err.message);
+                    return;
+                }
+            }
+
+            if (txt) {
+                socket.emit('send_message', {
+                    message:  txt,
+                    reply_to: activeReplyId,
+                    room_id:  currentRoomId
+                });
+                input.value = '';
+                cancelReplyState();
+            }
+        }
+
+        document.getElementById('text-message-input').addEventListener('keydown', e => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+            }
+        });
+
+        function appendBubble(msg) {
+            if(document.querySelector(`[data-id="${msg.id}"]`)) return;
+            const container = document.getElementById('messages-container');
+            const div = document.createElement('div');
+            const msgUserUpper = msg.username.toUpperCase();
+            div.className = `msg ${msgUserUpper === clientUser ? 'my' : 'other'}`;
+            div.dataset.id = msg.id;
+            
+            let inner = `<div class="msg-content-wrapper">`;
+            if(msgUserUpper !== clientUser && !currentRoomId.includes("_to_")) {
+                inner += `<strong>${msgUserUpper}</strong>`;
+            }
+            if(msg.type === 'image' || msg.image_url) {
+                inner += `<img class="message-image" src="${msg.image_url}">`;
+            } else {
+                inner += `<span class="msg-text">${formatClickableTokens(msg.message)}</span>`;
+            }
+            const timePart = msg.time && msg.time.includes(' ') ? msg.time.split(' ')[1] : msg.time;
+            inner += `<span class="timestamp">  ${timePart.substring(0, 5)}  </span></div>`;
+            div.innerHTML = inner;
+            container.appendChild(div);
+        }
+
+        function appendSys(t) {
+            const div = document.createElement('div');
+            div.className = 'msg sys';
+            div.textContent = t;
+            document.getElementById('messages-container').appendChild(div);
+            scrollBottom();
+        }
+
+        function scrollBottom() {
+            const c = document.getElementById('messages-container');
+            c.scrollTop = c.scrollHeight;
+        }
+
+        const ctxMenu = document.getElementById('context-menu-popup');
+        document.addEventListener('contextmenu', e => {
+            const m = e.target.closest('.msg');
+            if(!m || m.classList.contains('sys')) return;
+            e.preventDefault();
+            ctxMenu.dataset.targetId = m.dataset.id;
+            ctxMenu.style.left = `${e.pageX}px`;
+            ctxMenu.style.top = `${e.pageY}px`;
+            ctxMenu.style.display = 'block';
+        });
+
+        document.addEventListener('click', () => ctxMenu.style.display = 'none');
+
+        ctxMenu.addEventListener('click', e => {
+            const action = e.target.dataset.action;
+            const mid = ctxMenu.dataset.targetId;
+            if(!action || !mid) return;
+
+            if(action === 'reply') {
+                activeReplyId = mid;
+                document.getElementById('reply-indicator-bar').style.display = 'flex';
+                document.getElementById('reply-text').textContent = `Reply to message`;
+            } else if(action === 'delete') {
+                socket.emit('delete_message', { msg_id: mid });
+            }
+        });
+
+        socket.on('message_deleted', d => document.querySelector(`[data-id="${d.msg_id}"]`)?.remove());
+
+        function cancelReplyState() { activeReplyId = null; document.getElementById('reply-indicator-bar').style.display = 'none'; }
+        
+        document.getElementById('file-selector').addEventListener('change', e => {
+            selectedFileBlob = e.target.files[0];
+            if(selectedFileBlob) {
+                document.getElementById('img-preview').src = URL.createObjectURL(selectedFileBlob);
+                document.getElementById('image-upload-preview').style.display = 'block';
+            }
+        });
+
+        function clearFileSelection() {
+            selectedFileBlob = null;
+            document.getElementById('file-selector').value = '';
+            document.getElementById('image-upload-preview').style.display = 'none';
+        }
+    </script>
+</body>
+</html>
