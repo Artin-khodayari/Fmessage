@@ -41,10 +41,7 @@ USERS_DB = {
     "KIAMEHR": {"password": "2011",       "is_admin": True}
 }
 
-ROOMS_DB = {
-    "room1": {"id": "room1", "name": "ASMA", "max_members": 4, "avatar_color": "#0AD0DF",
-              "members_count": 0, "is_dm": False, "owner": "ARTIN", "invite_link": "invite_asma"},
-}
+ROOMS_DB = {}
 
 
 active_connections = {}
@@ -161,8 +158,11 @@ def format_mentions(text):
 
 
 def get_filtered_rooms_for_client(username):
-    """Return all public rooms plus DMs the user participates in."""
-    visible = list(ROOMS_DB.values())
+    visible = [
+        room for room in ROOMS_DB.values()
+        if not room.get('is_private', False)
+        or room.get('owner') == username
+    ]
 
     dm_db = load_dm_registry()
     for dm_id, info in dm_db.items():
@@ -495,6 +495,7 @@ def handle_create_room(data):
     ROOMS_DB[room_id] = {
         "id": room_id, "name": name, "max_members": max_members,
         "avatar_color": color, "members_count": 0, "is_dm": False,
+        "is_private": True,
         "owner": username, "invite_link": invite,
     }
     broadcast_lists_globally()
@@ -564,7 +565,7 @@ def handle_link_join(data):
 
     target_room = None
     for r_id, r in ROOMS_DB.items():
-        if r_id == invite_key or r.get('invite_link') == invite_key:
+        if r.get('invite_link') == invite_key:
             target_room = r
             break
 
