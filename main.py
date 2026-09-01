@@ -505,7 +505,6 @@ def handle_create_room(data):
         "is_dm": False,
         "is_private": True,
         "members": [],
-        "removed_members": [],
         "owner": username,
         "invite_link": invite,
     }
@@ -582,12 +581,6 @@ def handle_link_join(data):
 
     if not target_room:
         socketio.emit('settings_error', {'message': 'Invalid invite link.'}, room=sid)
-        return
-
-    if username in target_room.get('removed_members', []):
-        socketio.emit('settings_error',
-                      {'message': 'Access denied: you were removed from this group.'},
-                      room=sid)
         return
 
     occupants = [s for s, d in active_connections.items()
@@ -671,29 +664,17 @@ def handle_kick_user(data):
     room_id = data.get('room_id')
     target_username = str(data.get('target_user', '')).strip().upper()
 
-    if room_id not in ROOMS_DB or not username or not target_username:
+    if room_id not in ROOMS_DB or not username:
         return
     room = ROOMS_DB[room_id]
-    is_owner = room.get('owner') == username
-    target_is_admin = USERS_DB.get(target_username, {}).get('is_admin', False)
-
-    # Owner can remove anyone except themselves. Admins can remove non-admins only.
-    if not is_owner and (not is_global_admin or target_is_admin):
+    if room.get('owner') != username and not is_global_admin:
         socketio.emit('settings_error', {'message': 'Unauthorized.'}, room=sid)
         return
 
-    if is_owner and room.get('owner') == target_username:
+    if room.get('owner') == target_username:
         socketio.emit('settings_error',
-                      {'message': 'Cannot remove the room owner.'}, room=sid)
+                      {'message': 'Cannot kick the room owner.'}, room=sid)
         return
-
-    removed_members = room.setdefault('removed_members', [])
-    members = room.setdefault('members', [])
-
-    if target_username in members:
-        members.remove(target_username)
-    if target_username not in removed_members:
-        removed_members.append(target_username)
 
     target_sid = None
     for csid, cp in active_connections.items():
@@ -708,58 +689,7 @@ def handle_kick_user(data):
         socketio.emit('you_were_kicked', {'room_id': room_id}, room=target_sid)
         emit('user_left_room', {'username': target_username},
              room=room_id, include_self=True)
-
-    socketio.emit('room_removed_members_updated',
-                  {'room_id': room_id, 'removed_members': removed_members},
-                  room=room_id)
-    update_room_occupancy_metrics(room_id)
-
-
-@socketio.on('get_removed_members')
-def handle_get_removed_members(data):
-    sid = request.sid
-    profile = safe_get_profile(sid)
-    username = profile.get('username')
-    is_global_admin = profile.get('is_admin', False)
-    room_id = data.get('room_id')
-
-    if room_id not in ROOMS_DB or not username:
-        return
-    room = ROOMS_DB[room_id]
-    if room.get('owner') != username and not is_global_admin:
-        socketio.emit('settings_error', {'message': 'Unauthorized.'}, room=sid)
-        return
-
-    socketio.emit('room_removed_members',
-                  {'room_id': room_id,
-                   'removed_members': room.get('removed_members', [])},
-                  room=sid)
-
-
-@socketio.on('restore_removed_member')
-def handle_restore_removed_member(data):
-    sid = request.sid
-    profile = safe_get_profile(sid)
-    username = profile.get('username')
-    is_global_admin = profile.get('is_admin', False)
-    room_id = data.get('room_id')
-    target_username = str(data.get('target_user', '')).strip().upper()
-
-    if room_id not in ROOMS_DB or not username or not target_username:
-        return
-    room = ROOMS_DB[room_id]
-    if room.get('owner') != username and not is_global_admin:
-        socketio.emit('settings_error', {'message': 'Unauthorized.'}, room=sid)
-        return
-
-    removed_members = room.setdefault('removed_members', [])
-    if target_username in removed_members:
-        removed_members.remove(target_username)
-
-    socketio.emit('room_removed_members',
-                  {'room_id': room_id,
-                   'removed_members': removed_members},
-                  room=sid)
+        update_room_occupancy_metrics(room_id)
 
 
 @socketio.on('join_chat_room')
@@ -790,12 +720,6 @@ def handle_join_room(data):
         return
     room = ROOMS_DB[room_id]
 
-    if username in room.get('removed_members', []):
-        socketio.emit('settings_error',
-                      {'message': 'Access denied: you were removed from this group.'},
-                      room=sid)
-        return
-
     occupants = [s for s, d in active_connections.items() if d.get('room_id') == room_id]
     if sid not in occupants and len(occupants) >= room['max_members']:
         socketio.emit('settings_error',
@@ -804,8 +728,6 @@ def handle_join_room(data):
 
     profile['room_id'] = room_id
     join_room(room_id, sid=sid)
-    if username != room.get('owner') and username not in room.setdefault('members', []):
-        room['members'].append(username)
 
     all_msgs = load_messages()
     room_history = [m for m in all_msgs if m.get('room') == room_id][-100:]
@@ -831,10 +753,6 @@ def handle_leave_room(data):
     leave_room(room_id, sid=sid)
     if profile.get('room_id') == room_id:
         profile['room_id'] = None
-
-    if "_to_" not in room_id and profile.get('username') and room_id in ROOMS_DB:
-        if profile['username'] in ROOMS_DB[room_id].get('members', []):
-            ROOMS_DB[room_id]['members'].remove(profile['username'])
 
     if "_to_" not in room_id and profile.get('username'):
         emit('user_left_room', {'username': profile['username']},
@@ -940,6 +858,48 @@ def handle_delete(data):
             updated = [m for m in history if m.get('id') != msg_id]
             save_messages(updated)
             socketio.emit('message_deleted', {'msg_id': msg_id}, room=room_id)
+
+
+@socketio.on('edit_message')
+def handle_edit_message(data):
+    sid = request.sid
+    profile = safe_get_profile(sid)
+    msg_id = (data or {}).get('msg_id')
+    new_text = str((data or {}).get('message', '')).strip()
+    room_id = profile.get('room_id')
+    username = profile.get('username')
+
+    if not room_id or not msg_id or not username or not new_text:
+        return
+    if len(new_text) > 2000:
+        socketio.emit('settings_error', {'message': 'Message too long.'}, room=sid)
+        return
+
+    clean_message = format_mentions(sanitize_message(new_text))
+    is_dm = "_to_" in room_id
+
+    if is_dm:
+        messages = load_dm_messages(room_id)
+        target = next((m for m in messages if m.get('id') == msg_id), None)
+        if not target or target.get('username') != username or target.get('type') == 'image':
+            return
+        target['message'] = clean_message
+        target['mentioned'] = list(set(re.findall(r'@([A-Z0-9]+)', new_text)))
+        target['is_edited'] = True
+        target['time'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        save_dm_messages(room_id, messages)
+        socketio.emit('message_edited', target, room=room_id)
+    else:
+        history = load_messages()
+        target = next((m for m in history if m.get('id') == msg_id and m.get('room') == room_id), None)
+        if not target or target.get('username') != username or target.get('type') == 'image':
+            return
+        target['message'] = clean_message
+        target['mentioned'] = list(set(re.findall(r'@([A-Z0-9]+)', new_text)))
+        target['is_edited'] = True
+        target['time'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        save_messages(history)
+        socketio.emit('message_edited', target, room=room_id)
 
 
 @socketio.on('logout')

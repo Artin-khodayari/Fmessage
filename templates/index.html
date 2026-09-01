@@ -307,6 +307,7 @@
 
     <div id="context-menu-popup">
         <li data-action="reply">Reply</li>
+        <li data-action="edit">Edit</li>
         <li data-action="delete" style="color:#d9534f;">Delete</li>
     </div>
 
@@ -467,32 +468,8 @@
 
         function copyGroupInviteLink() {
             if(!activeInviteLinkString) return;
-
-            if (navigator.clipboard && navigator.clipboard.writeText) {
-                navigator.clipboard.writeText(activeInviteLinkString)
-                    .then(() => alert("Invite segment copied! Share this token key: " + activeInviteLinkString))
-                    .catch(() => fallbackCopyInviteLink());
-            } else {
-                fallbackCopyInviteLink();
-            }
-        }
-
-        function fallbackCopyInviteLink() {
-            const textArea = document.createElement('textarea');
-            textArea.value = activeInviteLinkString;
-            textArea.style.position = 'fixed';
-            textArea.style.opacity = '0';
-            document.body.appendChild(textArea);
-            textArea.select();
-
-            try {
-                document.execCommand('copy');
-                alert("Invite segment copied! Share this token key: " + activeInviteLinkString);
-            } catch (e) {
-                alert("Copy failed. Please copy this token manually: " + activeInviteLinkString);
-            }
-
-            document.body.removeChild(textArea);
+            navigator.clipboard.writeText(activeInviteLinkString);
+            alert("Invite segment copied! Share this token key: " + activeInviteLinkString);
         }
 
         socket.on('invite_link_validated', data => {
@@ -699,6 +676,7 @@
             const msgUserUpper = msg.username.toUpperCase();
             div.className = `msg ${msgUserUpper === clientUser ? 'my' : 'other'}`;
             div.dataset.id = msg.id;
+            div.dataset.message = msg.message || '';
             
             let inner = `<div class="msg-content-wrapper">`;
             if(msgUserUpper !== clientUser && !currentRoomId.includes("_to_")) {
@@ -738,26 +716,59 @@
             const m = e.target.closest('.msg');
             if(!m || m.classList.contains('sys')) return;
             e.preventDefault();
+            e.stopPropagation();
             ctxMenu.dataset.targetId = m.dataset.id;
-            ctxMenu.style.left = `${e.pageX}px`;
-            ctxMenu.style.top = `${e.pageY}px`;
+            ctxMenu.querySelector('[data-action="edit"]').style.display = m.classList.contains('my') ? 'block' : 'none';
             ctxMenu.style.display = 'block';
+
+            requestAnimationFrame(() => {
+                const menuWidth = ctxMenu.offsetWidth;
+                const menuHeight = ctxMenu.offsetHeight;
+                const maxLeft = Math.max(8, document.documentElement.clientWidth - menuWidth - 8);
+                const maxTop = Math.max(8, document.documentElement.clientHeight - menuHeight - 8);
+                const left = Math.min(Math.max(8, e.clientX), maxLeft);
+                const top = Math.min(Math.max(8, e.clientY), maxTop);
+                ctxMenu.style.left = `${left}px`;
+                ctxMenu.style.top = `${top}px`;
+            });
         });
 
         document.addEventListener('click', () => ctxMenu.style.display = 'none');
 
         ctxMenu.addEventListener('click', e => {
+            e.stopPropagation();
             const action = e.target.dataset.action;
             const mid = ctxMenu.dataset.targetId;
             if(!action || !mid) return;
+            ctxMenu.style.display = 'none';
 
             if(action === 'reply') {
                 activeReplyId = mid;
                 document.getElementById('reply-indicator-bar').style.display = 'flex';
                 document.getElementById('reply-text').textContent = `Reply to message`;
+            } else if(action === 'edit') {
+                const messageEl = document.querySelector(`[data-id="${mid}"]`);
+                const currentText = messageEl ? messageEl.dataset.message : '';
+                const decoded = document.createElement('textarea');
+                decoded.innerHTML = currentText;
+                const edited = prompt('Edit message:', decoded.value);
+                if(edited !== null && edited.trim()) {
+                    socket.emit('edit_message', { msg_id: mid, message: edited.trim() });
+                }
             } else if(action === 'delete') {
                 socket.emit('delete_message', { msg_id: mid });
             }
+        });
+
+        socket.on('message_edited', msg => {
+            const el = document.querySelector(`[data-id="${msg.id}"]`);
+            if(!el) return;
+            el.dataset.message = msg.message || '';
+            const text = el.querySelector('.msg-text');
+            if(text) text.innerHTML = formatClickableTokens(msg.message || '');
+            const timePart = msg.time && msg.time.includes(' ') ? msg.time.split(' ')[1] : msg.time;
+            const timestamp = el.querySelector('.timestamp');
+            if(timestamp) timestamp.textContent = `  ${timePart.substring(0, 5)}  (edited)`;
         });
 
         socket.on('message_deleted', d => document.querySelector(`[data-id="${d.msg_id}"]`)?.remove());
