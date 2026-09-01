@@ -112,6 +112,33 @@
         #context-menu-popup li { padding: 10px 16px; cursor: pointer; list-style: none; font-size: 14px; color: white; }
         #context-menu-popup li:hover { background: var(--input-bg); }
         #leave-room-btn { background: #d9534f; color: white; padding: 10px; border: none; border-radius: 8px; cursor: pointer; margin: 16px; font-weight: 500; text-align: center; }
+
+        #mobile-back-btn {
+            display: none; background: none; border: none; color: white; cursor: pointer;
+            font-size: 24px; line-height: 1; padding: 4px 8px 4px 0; flex-shrink: 0;
+        }
+
+        @media (max-width: 700px) {
+            body { height: 100dvh; }
+            #chat-workspace-view { height: 100dvh; }
+            #sidebar { width: 100%; min-width: 100%; border-right: none; }
+            #main-chat { width: 100%; min-width: 100%; }
+
+            #chat-workspace-view.mobile-chat-open #sidebar { display: none; }
+            #chat-workspace-view:not(.mobile-chat-open) #main-chat { display: none; }
+
+            #chat-header { padding: 10px 14px; gap: 8px; }
+            #header-meta-area { min-width: 0; flex: 1; }
+            #chat-header h3 { font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            #active-room-stats { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+            #mobile-back-btn { display: block; }
+            #invite-link-btn, #group-settings-btn { padding: 6px 8px; font-size: 11px; }
+
+            #messages-container { padding: 12px 10px; }
+            .msg { max-width: 82%; }
+            #input-panel { padding: 8px 10px calc(8px + env(safe-area-inset-bottom)); }
+        }
     </style>
 </head>
 <body>
@@ -152,6 +179,7 @@
                     <span id="active-room-stats"></span>
                 </div>
                 <div style="display:flex; gap:8px; align-items:center;">
+                    <button id="mobile-back-btn" onclick="closeMobileChat()" aria-label="Back">‹</button>
                     <button id="invite-link-btn" class="action-header-btn" style="display:none;" onclick="copyGroupInviteLink()">Copy Invite Link</button>
                     <button id="group-settings-btn" class="action-header-btn" style="display:none; background:#24303f;" onclick="openSettingsModal()">⚙ Settings</button>
                 </div>
@@ -450,6 +478,7 @@
         function joinRoomChannel(id, name, isDm = false) {
             if(currentRoomId) socket.emit('leave_chat_room', { room_id: currentRoomId });
             currentRoomId = id;
+            document.getElementById('chat-workspace-view').classList.add('mobile-chat-open');
             document.getElementById('active-room-title').textContent = name;
             document.getElementById('input-panel').style.display = 'flex';
             document.getElementById('leave-room-btn').style.display = isDm ? 'none' : 'block';
@@ -459,19 +488,23 @@
             socket.emit('join_chat_room', { room_id: id });
         }
 
+        function closeMobileChat() {
+            if(!currentRoomId) return;
+            socket.emit('leave_chat_room', { room_id: currentRoomId });
+            currentRoomId = null;
+            document.getElementById('chat-workspace-view').classList.remove('mobile-chat-open');
+            document.getElementById('active-room-title').textContent = "Select a chat to start messaging";
+            document.getElementById('active-room-stats').textContent = "";
+            document.getElementById('input-panel').style.display = 'none';
+            document.getElementById('leave-room-btn').style.display = 'none';
+            document.getElementById('invite-link-btn').style.display = 'none';
+            document.getElementById('group-settings-btn').style.display = 'none';
+            document.getElementById('messages-container').innerHTML = '';
+            socket.emit('get_available_rooms');
+        }
+
         document.getElementById('leave-room-btn').onclick = () => {
-            if(currentRoomId) {
-                socket.emit('leave_chat_room', { room_id: currentRoomId });
-                currentRoomId = null;
-                document.getElementById('active-room-title').textContent = "Select a chat to start messaging";
-                document.getElementById('active-room-stats').textContent = "";
-                document.getElementById('input-panel').style.display = 'none';
-                document.getElementById('leave-room-btn').style.display = 'none';
-                document.getElementById('invite-link-btn').style.display = 'none';
-                document.getElementById('group-settings-btn').style.display = 'none';
-                document.getElementById('messages-container').innerHTML = '';
-                socket.emit('get_available_rooms');
-            }
+            closeMobileChat();
         };
 
         socket.on('chat_history', data => {
@@ -563,6 +596,7 @@
         socket.on('you_were_kicked', data => {
             if(currentRoomId === data.room_id) {
                 currentRoomId = null;
+                document.getElementById('chat-workspace-view').classList.remove('mobile-chat-open');
                 document.getElementById('active-room-title').textContent = "Select a chat to start messaging";
                 document.getElementById('active-room-stats').textContent = "";
                 document.getElementById('input-panel').style.display = 'none';
