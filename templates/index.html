@@ -467,8 +467,32 @@
 
         function copyGroupInviteLink() {
             if(!activeInviteLinkString) return;
-            navigator.clipboard.writeText(activeInviteLinkString);
-            alert("Invite segment copied! Share this token key: " + activeInviteLinkString);
+
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(activeInviteLinkString)
+                    .then(() => alert("Invite segment copied! Share this token key: " + activeInviteLinkString))
+                    .catch(() => fallbackCopyInviteLink());
+            } else {
+                fallbackCopyInviteLink();
+            }
+        }
+
+        function fallbackCopyInviteLink() {
+            const textArea = document.createElement('textarea');
+            textArea.value = activeInviteLinkString;
+            textArea.style.position = 'fixed';
+            textArea.style.opacity = '0';
+            document.body.appendChild(textArea);
+            textArea.select();
+
+            try {
+                document.execCommand('copy');
+                alert("Invite segment copied! Share this token key: " + activeInviteLinkString);
+            } catch (e) {
+                alert("Copy failed. Please copy this token manually: " + activeInviteLinkString);
+            }
+
+            document.body.removeChild(textArea);
         }
 
         socket.on('invite_link_validated', data => {
