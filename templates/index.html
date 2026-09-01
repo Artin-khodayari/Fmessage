@@ -261,11 +261,16 @@
             </div>
 
             <div>
-                <label style="font-size:12px; color:var(--text-meta); display:block; margin-bottom:4px;">Kick Online Room Participant</label>
+                <label style="font-size:12px; color:var(--text-meta); display:block; margin-bottom:4px;">Remove Room Participant</label>
                 <div style="display:flex; gap:8px;">
                     <input type="text" id="settings-kick-username" placeholder="USERNAME" style="flex:1; padding:8px 12px; background:var(--chat-bg); border:1px solid var(--border-color); border-radius:6px; color:white; outline:none; font-size:13px;">
-                    <button onclick="kickUserFromPanel()" style="background:#d9534f; color:white; border:none; padding:8px 12px; border-radius:6px; cursor:pointer; font-size:13px;">Kick</button>
+                    <button onclick="kickUserFromPanel()" style="background:#d9534f; color:white; border:none; padding:8px 12px; border-radius:6px; cursor:pointer; font-size:13px;">Remove</button>
                 </div>
+            </div>
+
+            <div>
+                <label style="font-size:12px; color:var(--text-meta); display:block; margin-bottom:4px;">Removed Members</label>
+                <div id="removed-members-list" style="max-height:120px; overflow-y:auto; background:var(--chat-bg); border:1px solid var(--border-color); border-radius:6px; padding:6px;"></div>
             </div>
 
             <button onclick="saveGroupSettingsChanges()" style="width:100%; padding:10px; background:var(--accent); color:white; border:none; border-radius:6px; font-weight:500; cursor:pointer; margin-top:8px;">Save Modifications</button>
@@ -359,6 +364,8 @@
             SESSION.username  = data.username.toUpperCase();
             SESSION.isAdmin   = data.is_admin;
             SESSION.authToken = data.auth_token;
+            clientUser = SESSION.username;
+            clientIsAdmin = SESSION.isAdmin;
 
             document.getElementById('auth-view').style.display = 'none';
             document.getElementById('chat-workspace-view').style.display = 'flex';
@@ -492,7 +499,9 @@
         function openSettingsModal() {
             document.getElementById('settings-group-name').value = document.getElementById('active-room-title').textContent;
             document.getElementById('settings-invite-string').value = activeInviteLinkString;
+            document.getElementById('removed-members-list').innerHTML = '<span style="color:var(--text-meta); font-size:12px;">Loading...</span>';
             document.getElementById('settings-modal').style.display = 'flex';
+            socket.emit('get_removed_members', { room_id: currentRoomId });
         }
 
         function closeSettingsModal() {
@@ -515,6 +524,29 @@
                 socket.emit('kick_user_from_room', { room_id: currentRoomId, target_user: target });
                 document.getElementById('settings-kick-username').value = "";
             }
+        }
+
+        socket.on('room_removed_members', data => {
+            if(data.room_id !== currentRoomId) return;
+            const container = document.getElementById('removed-members-list');
+            container.innerHTML = '';
+            if(!data.removed_members || !data.removed_members.length) {
+                container.innerHTML = '<span style="color:var(--text-meta); font-size:12px;">No removed members</span>';
+                return;
+            }
+            data.removed_members.forEach(user => {
+                const row = document.createElement('div');
+                row.style.cssText = 'display:flex; justify-content:space-between; align-items:center; gap:8px; padding:4px 0;';
+                row.innerHTML = `<span style="font-size:13px;">${user}</span><button class="action-header-btn" style="padding:4px 8px;" onclick="restoreRemovedMember('${user}')">Restore</button>`;
+                container.appendChild(row);
+            });
+        });
+
+        function restoreRemovedMember(username) {
+            socket.emit('restore_removed_member', {
+                room_id: currentRoomId,
+                target_user: username
+            });
         }
 
         socket.on('new_invite_link_generated', data => {
